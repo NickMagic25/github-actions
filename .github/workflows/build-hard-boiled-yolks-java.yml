@@ -13,7 +13,6 @@ jobs:
   prepare:
     name: Prepare Java Melange Artifact
     runs-on:
-      - self-hosted
       - edrisil-arc
     env:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
