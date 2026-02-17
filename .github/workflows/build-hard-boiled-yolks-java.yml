@@ -2,6 +2,8 @@ name: Build and Publish Hard Boiled Yolks Java
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 9 * * 6'
   push:
     paths:
       - .github/workflows/build-hard-boiled-yolks-java.yml
