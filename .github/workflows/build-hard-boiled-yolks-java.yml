@@ -12,13 +12,16 @@ permissions:
 jobs:
   prepare:
     name: Prepare Java Melange Artifact
-    runs-on:
-      - edrisil-arc
+    runs-on: edrisil-arc
+    container:
+      image: harbor.edrisil.net/ci/apko:latest
+      options: --privileged
+      credentials:
+        username: ${{ secrets.HARBOR_USERNAME }}
+        password: ${{ secrets.HARBOR_PASSWORD }}
     env:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
-    outputs:
-      versions: ${{ steps.discover.outputs.versions }}
     steps:
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
@@ -26,54 +29,22 @@ jobs:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Discover Java versions
-        id: discover
+      - name: Generate melange signing key
         shell: bash
         run: |
           set -euo pipefail
-
-          mapfile -t versions < <(
-            find "${SOURCE_PATH}/java" -mindepth 2 -maxdepth 2 -type f -name apko.yaml \
-              | sed -E 's#.*/java/([^/]+)/apko.yaml#\1#' \
-              | sort -V
-          )
-
-          if [ "${#versions[@]}" -eq 0 ]; then
-            echo "No Java apko.yaml files found."
-            exit 1
-          fi
-
-          json="["
-          for i in "${!versions[@]}"; do
-            if [ "$i" -gt 0 ]; then
-              json+=","
-            fi
-            json+="\"${versions[$i]}\""
-          done
-          json+="]"
-
-          echo "versions=${json}" >> "${GITHUB_OUTPUT}"
-          echo "Discovered Java versions: ${versions[*]}"
-
-      - name: Set up melange
-        uses: chainguard-dev/actions/setup-melange@0cf1221da92242205c2d9f8a63add344ebd6b304
-
-      - name: Generate melange signing key
-        uses: chainguard-dev/actions/melange-keygen@0cf1221da92242205c2d9f8a63add344ebd6b304
-        with:
-          signing-key-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/java/melange.rsa
-          install-public-key: false
+          melange keygen "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/melange.rsa"
 
       - name: Build Java melange packages
-        uses: chainguard-dev/actions/melange-build-pkg@0cf1221da92242205c2d9f8a63add344ebd6b304
-        with:
-          config: entrypoint/melange.yaml
-          archs: x86_64,aarch64
-          sign-with-key: true
-          signing-key-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/java/melange.rsa
-          repository-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/java/packages
-          source-dir: ${{ github.workspace }}
-          workdir: ${{ env.SOURCE_PATH }}/java
+        shell: bash
+        run: |
+          set -euo pipefail
+          melange build \
+            "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/entrypoint/melange.yaml" \
+            --arch x86_64,aarch64 \
+            --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/melange.rsa" \
+            --destination-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/packages" \
+            --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java"
 
       - name: Upload Java melange artifact
         uses: actions/upload-artifact@v4
@@ -91,10 +62,15 @@ jobs:
     runs-on:
       - self-hosted
       - edrisil-arc
+    container:
+      image: harbor.edrisil.net/ci/apko:latest
+      credentials:
+        username: ${{ secrets.HARBOR_USERNAME }}
+        password: ${{ secrets.HARBOR_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
-        version: ${{ fromJson(needs.prepare.outputs.versions) }}
+        version: ["8", "11", "17", "18", "19", "21", "25"]
     env:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
@@ -108,25 +84,13 @@ jobs:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-
-      - name: Install apko CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          go install chainguard.dev/apko@latest
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
-
       - name: Download Java melange artifact
         uses: actions/download-artifact@v4
         with:
           name: java-melange-packages
           path: ${{ env.SOURCE_PATH }}/java
 
-      - name: Configure Harbor auth for apko
+      - name: Configure Harbor auth
         shell: bash
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
@@ -145,14 +109,14 @@ jobs:
           }
           EOF
 
-      - name: Publish Java image
+      - name: Publish Java ${{ matrix.version }} image
         shell: bash
         run: |
           set -euo pipefail
 
           image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_REPOSITORY}:java_${{ matrix.version }}"
 
-          pushd "${SOURCE_PATH}/java" >/dev/null
+          pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java" >/dev/null
           apko publish "${{ matrix.version }}/apko.yaml" "${image_ref}" \
             --keyring-append melange.rsa.pub \
             --repository-append ./packages
