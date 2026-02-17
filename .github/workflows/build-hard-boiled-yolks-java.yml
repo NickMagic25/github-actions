@@ -49,7 +49,7 @@ jobs:
             "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/entrypoint/melange.yaml" \
             --arch x86_64,aarch64 \
             --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/melange.rsa" \
-            --destination-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/packages" \
+            --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/packages" \
             --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java"
 
       - name: Upload Java melange artifact
