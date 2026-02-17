@@ -62,8 +62,7 @@ jobs:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
       HARBOR_REGISTRY: harbor.edrisil.net
-      HARBOR_PROJECT: ${{ vars.HARBOR_PROJECT || 'library' }}
-      HARBOR_REPOSITORY: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
+      HARBOR_PROJECT: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
     steps:
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
@@ -93,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_REPOSITORY}:java_${{ matrix.version }}"
+          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/java_${{ matrix.version }}"
 
           pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java" >/dev/null
           apko publish "${{ matrix.version }}/apko.yaml" "${image_ref}" \
