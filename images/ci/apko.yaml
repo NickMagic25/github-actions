@@ -1,0 +1,45 @@
+contents:
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    repositories:
+      - https://packages.wolfi.dev/os
+    packages:
+      - busybox
+      - apko
+      - melange
+      - git
+      - bash
+      - curl
+      - ca-certificates-bundle
+
+accounts:
+  groups:
+    - groupname: container
+      gid: 1000
+  users:
+    - username: container
+      uid: 1000
+      gid: 1000
+      shell: /bin/bash
+
+paths:
+  - path: /home/container
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o750
+  - path: /workspace
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+
+environment:
+  HOME: /home/container
+
+entrypoint:
+  command: /bin/bash
+
+archs:
+  - x86_64
+  - aarch64
