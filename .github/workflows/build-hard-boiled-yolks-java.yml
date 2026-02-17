@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           melange build \
             "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/entrypoint/melange.yaml" \
-            --arch x86_64,aarch64 \
+            --arch x86_64 \
             --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/melange.rsa" \
             --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/packages" \
             --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java"
@@ -98,7 +98,7 @@ jobs:
 
           pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java" >/dev/null
           apko publish "${{ matrix.version }}/apko.yaml" "${image_ref}" \
-            --arch x86_64,aarch64 \
+            --arch x86_64 \
             --keyring-append melange.rsa.pub \
             --repository-append ./packages
           popd >/dev/null
