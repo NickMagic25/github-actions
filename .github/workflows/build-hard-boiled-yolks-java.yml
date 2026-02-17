@@ -86,15 +86,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${HOME}/.docker"
           auth="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
-          cat > "${HOME}/.docker/config.json" <<EOF
-          {
-            "auths": {
-              "${HARBOR_REGISTRY}": {
-                "auth": "${auth}"
-              }
-            }
-          }
-EOF
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "${HARBOR_REGISTRY}" "${auth}" > "${HOME}/.docker/config.json"
 
       - name: Publish Java ${{ matrix.version }} image
         shell: bash
