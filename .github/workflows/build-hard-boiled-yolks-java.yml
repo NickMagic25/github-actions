@@ -53,9 +53,7 @@ jobs:
     name: Publish Java ${{ matrix.version }}
     needs: prepare
     environment: harbor
-    runs-on:
-      - self-hosted
-      - edrisil-arc
+    runs-on: edrisil-arc
     strategy:
       fail-fast: false
       matrix:
