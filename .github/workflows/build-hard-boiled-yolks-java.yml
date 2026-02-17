@@ -13,6 +13,7 @@ jobs:
   prepare:
     name: Prepare Java Melange Artifact
     runs-on: edrisil-arc
+    environment: harbor
     container:
       image: harbor.edrisil.net/ci/apko:latest
       options: --privileged
