@@ -94,7 +94,7 @@ jobs:
               }
             }
           }
-          EOF
+EOF
 
       - name: Publish Java ${{ matrix.version }} image
         shell: bash
