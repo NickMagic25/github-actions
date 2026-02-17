@@ -13,13 +13,6 @@ jobs:
   prepare:
     name: Prepare Java Melange Artifact
     runs-on: edrisil-arc
-    environment: harbor
-    container:
-      image: harbor.edrisil.net/ci/apko:latest
-      options: --privileged
-      credentials:
-        username: ${{ secrets.HARBOR_USERNAME }}
-        password: ${{ secrets.HARBOR_PASSWORD }}
     env:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
@@ -29,6 +22,18 @@ jobs:
         with:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Install melange
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install chainguard.dev/melange@latest
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
       - name: Generate melange signing key
         shell: bash
@@ -63,11 +68,6 @@ jobs:
     runs-on:
       - self-hosted
       - edrisil-arc
-    container:
-      image: harbor.edrisil.net/ci/apko:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USERNAME }}
-        password: ${{ secrets.HARBOR_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +84,18 @@ jobs:
         with:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Install apko
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install chainguard.dev/apko@latest
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
       - name: Download Java melange artifact
         uses: actions/download-artifact@v4
