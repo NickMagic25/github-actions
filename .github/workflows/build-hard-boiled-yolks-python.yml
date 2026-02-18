@@ -21,6 +21,9 @@ jobs:
     outputs:
       versions: ${{ steps.discover.outputs.versions }}
     steps:
+      - name: Checkout actions
+        uses: actions/checkout@v4
+
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
         with:
@@ -56,31 +59,12 @@ jobs:
           echo "versions=${json}" >> "${GITHUB_OUTPUT}"
           echo "Discovered Python versions: ${versions[*]}"
 
-      - name: Generate melange signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          melange keygen "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/melange.rsa"
-
-      - name: Build Python melange packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          melange build \
-            "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/entrypoint/melange.yaml" \
-            --arch x86_64 \
-            --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/melange.rsa" \
-            --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/packages" \
-            --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python"
-
-      - name: Upload Python melange artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and upload melange packages
+        uses: ./.github/actions/melange-build
         with:
-          name: python-melange-packages
-          path: |
-            ${{ env.SOURCE_PATH }}/python/packages
-            ${{ env.SOURCE_PATH }}/python/melange.rsa.pub
-          if-no-files-found: error
+          component: python
+          configs: entrypoint/melange.yaml
+          source-path: ${{ env.SOURCE_PATH }}
 
   publish:
     name: Publish Python ${{ matrix.version }}

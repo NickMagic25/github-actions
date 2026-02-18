@@ -19,37 +19,21 @@ jobs:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
     steps:
+      - name: Checkout actions
+        uses: actions/checkout@v4
+
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Generate melange signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          melange keygen "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/melange.rsa"
-
-      - name: Build Java melange packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          melange build \
-            "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/entrypoint/melange.yaml" \
-            --arch x86_64 \
-            --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/melange.rsa" \
-            --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java/packages" \
-            --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java"
-
-      - name: Upload Java melange artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and upload melange packages
+        uses: ./.github/actions/melange-build
         with:
-          name: java-melange-packages
-          path: |
-            ${{ env.SOURCE_PATH }}/java/packages
-            ${{ env.SOURCE_PATH }}/java/melange.rsa.pub
-          if-no-files-found: error
+          component: java
+          configs: entrypoint/melange.yaml
+          source-path: ${{ env.SOURCE_PATH }}
 
   publish:
     name: Publish Java ${{ matrix.version }}

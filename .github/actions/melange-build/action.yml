@@ -1,0 +1,49 @@
+name: Melange Build
+description: Generate signing key, build melange packages, and upload artifact
+
+inputs:
+  component:
+    description: Component name (used for paths and artifact name)
+    required: true
+  configs:
+    description: Comma-separated melange config paths relative to the component directory
+    required: true
+  source-path:
+    description: Checkout path of the source repo
+    required: true
+  arch:
+    description: Build architecture
+    required: false
+    default: x86_64
+
+runs:
+  using: composite
+  steps:
+    - name: Generate melange signing key
+      shell: bash
+      run: |
+        set -euo pipefail
+        melange keygen "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/melange.rsa"
+
+    - name: Build melange packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        IFS=',' read -ra CONFIGS <<< "${{ inputs.configs }}"
+        for config in "${CONFIGS[@]}"; do
+          melange build \
+            "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/${config}" \
+            --arch ${{ inputs.arch }} \
+            --signing-key "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/melange.rsa" \
+            --out-dir "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/packages" \
+            --source-dir "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}"
+        done
+
+    - name: Upload melange artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.component }}-melange-packages
+        path: |
+          ${{ inputs.source-path }}/${{ inputs.component }}/packages
+          ${{ inputs.source-path }}/${{ inputs.component }}/melange.rsa.pub
+        if-no-files-found: error

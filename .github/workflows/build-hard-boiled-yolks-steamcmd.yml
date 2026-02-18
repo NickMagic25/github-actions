@@ -19,39 +19,21 @@ jobs:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
     steps:
+      - name: Checkout actions
+        uses: actions/checkout@v4
+
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Generate melange signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          melange keygen "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/melange.rsa"
-
-      - name: Build SteamCMD melange packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          for config in runtime/melange.yaml entrypoint/melange.yaml; do
-            melange build \
-              "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/${config}" \
-              --arch x86_64 \
-              --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/melange.rsa" \
-              --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/packages" \
-              --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd"
-          done
-
-      - name: Upload SteamCMD melange artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and upload melange packages
+        uses: ./.github/actions/melange-build
         with:
-          name: steamcmd-melange-packages
-          path: |
-            ${{ env.SOURCE_PATH }}/steamcmd/packages
-            ${{ env.SOURCE_PATH }}/steamcmd/melange.rsa.pub
-          if-no-files-found: error
+          component: steamcmd
+          configs: runtime/melange.yaml,entrypoint/melange.yaml
+          source-path: ${{ env.SOURCE_PATH }}
 
   publish:
     name: Publish SteamCMD
