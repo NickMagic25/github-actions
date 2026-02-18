@@ -2,6 +2,8 @@ name: Build and Publish Hard Boiled Yolks Python
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 9 * * 6'
   push:
     paths:
       - .github/workflows/build-hard-boiled-yolks-python.yml
@@ -12,9 +14,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare Python Melange Artifact
-    runs-on:
-      - self-hosted
-      - edrisil-arc
+    runs-on: edrisil-arc
     env:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
@@ -56,25 +56,22 @@ jobs:
           echo "versions=${json}" >> "${GITHUB_OUTPUT}"
           echo "Discovered Python versions: ${versions[*]}"
 
-      - name: Set up melange
-        uses: chainguard-dev/actions/setup-melange@0cf1221da92242205c2d9f8a63add344ebd6b304
-
       - name: Generate melange signing key
-        uses: chainguard-dev/actions/melange-keygen@0cf1221da92242205c2d9f8a63add344ebd6b304
-        with:
-          signing-key-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/python/melange.rsa
-          install-public-key: false
+        shell: bash
+        run: |
+          set -euo pipefail
+          melange keygen "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/melange.rsa"
 
       - name: Build Python melange packages
-        uses: chainguard-dev/actions/melange-build-pkg@0cf1221da92242205c2d9f8a63add344ebd6b304
-        with:
-          config: entrypoint/melange.yaml
-          archs: x86_64,aarch64
-          sign-with-key: true
-          signing-key-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/python/melange.rsa
-          repository-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/python/packages
-          source-dir: ${{ github.workspace }}
-          workdir: ${{ env.SOURCE_PATH }}/python
+        shell: bash
+        run: |
+          set -euo pipefail
+          melange build \
+            "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/entrypoint/melange.yaml" \
+            --arch x86_64 \
+            --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/melange.rsa" \
+            --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python/packages" \
+            --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python"
 
       - name: Upload Python melange artifact
         uses: actions/upload-artifact@v4
@@ -89,9 +86,7 @@ jobs:
     name: Publish Python ${{ matrix.version }}
     needs: prepare
     environment: harbor
-    runs-on:
-      - self-hosted
-      - edrisil-arc
+    runs-on: edrisil-arc
     strategy:
       fail-fast: false
       matrix:
@@ -100,8 +95,7 @@ jobs:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
       HARBOR_REGISTRY: harbor.edrisil.net
-      HARBOR_PROJECT: ${{ vars.HARBOR_PROJECT || 'library' }}
-      HARBOR_REPOSITORY: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
+      HARBOR_PROJECT: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
     steps:
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
@@ -109,25 +103,13 @@ jobs:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-
-      - name: Install apko CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          go install chainguard.dev/apko@latest
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
-
       - name: Download Python melange artifact
         uses: actions/download-artifact@v4
         with:
           name: python-melange-packages
           path: ${{ env.SOURCE_PATH }}/python
 
-      - name: Configure Harbor auth for apko
+      - name: Configure Harbor auth
         shell: bash
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
@@ -136,25 +118,18 @@ jobs:
           set -euo pipefail
           mkdir -p "${HOME}/.docker"
           auth="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
-          cat > "${HOME}/.docker/config.json" <<EOF
-          {
-            "auths": {
-              "${HARBOR_REGISTRY}": {
-                "auth": "${auth}"
-              }
-            }
-          }
-          EOF
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "${HARBOR_REGISTRY}" "${auth}" > "${HOME}/.docker/config.json"
 
-      - name: Publish Python image
+      - name: Publish Python ${{ matrix.version }} image
         shell: bash
         run: |
           set -euo pipefail
 
-          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_REPOSITORY}:python_${{ matrix.version }}"
+          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/python_${{ matrix.version }}"
 
-          pushd "${SOURCE_PATH}/python" >/dev/null
+          pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/python" >/dev/null
           apko publish "${{ matrix.version }}/apko.yaml" "${image_ref}" \
+            --arch x86_64 \
             --keyring-append melange.rsa.pub \
             --repository-append ./packages
           popd >/dev/null

@@ -2,6 +2,8 @@ name: Build and Publish Hard Boiled Yolks SteamCMD
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 9 * * 6'
   push:
     paths:
       - .github/workflows/build-hard-boiled-yolks-steamcmd.yml
@@ -10,18 +12,12 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: Publish SteamCMD
-    environment: harbor
-    runs-on:
-      - self-hosted
-      - edrisil-arc
+  prepare:
+    name: Prepare SteamCMD Melange Artifact
+    runs-on: edrisil-arc
     env:
       SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
       SOURCE_PATH: hard-boiled-yolks
-      HARBOR_REGISTRY: harbor.edrisil.net
-      HARBOR_PROJECT: ${{ vars.HARBOR_PROJECT || 'library' }}
-      HARBOR_REPOSITORY: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
     steps:
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
@@ -29,39 +25,56 @@ jobs:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Set up melange
-        uses: chainguard-dev/actions/setup-melange@0cf1221da92242205c2d9f8a63add344ebd6b304
-
       - name: Generate melange signing key
-        uses: chainguard-dev/actions/melange-keygen@0cf1221da92242205c2d9f8a63add344ebd6b304
-        with:
-          signing-key-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/steamcmd/melange.rsa
-          install-public-key: false
-
-      - name: Build SteamCMD melange packages
-        uses: chainguard-dev/actions/melange-build-pkg@0cf1221da92242205c2d9f8a63add344ebd6b304
-        with:
-          multi-config: runtime/melange.yaml,entrypoint/melange.yaml
-          archs: x86_64
-          sign-with-key: true
-          signing-key-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/steamcmd/melange.rsa
-          repository-path: ${{ github.workspace }}/${{ env.SOURCE_PATH }}/steamcmd/packages
-          source-dir: ${{ github.workspace }}
-          workdir: ${{ env.SOURCE_PATH }}/steamcmd
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-
-      - name: Install apko CLI
         shell: bash
         run: |
           set -euo pipefail
-          go install chainguard.dev/apko@latest
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+          melange keygen "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/melange.rsa"
 
-      - name: Configure Harbor auth for apko
+      - name: Build SteamCMD melange packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          melange build \
+            "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/entrypoint/melange.yaml" \
+            --arch x86_64 \
+            --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/melange.rsa" \
+            --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/packages" \
+            --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd"
+
+      - name: Upload SteamCMD melange artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamcmd-melange-packages
+          path: |
+            ${{ env.SOURCE_PATH }}/steamcmd/packages
+            ${{ env.SOURCE_PATH }}/steamcmd/melange.rsa.pub
+          if-no-files-found: error
+
+  publish:
+    name: Publish SteamCMD
+    needs: prepare
+    environment: harbor
+    runs-on: edrisil-arc
+    env:
+      SOURCE_REPOSITORY: NickMagic25/hard-boiled-yolks
+      SOURCE_PATH: hard-boiled-yolks
+      HARBOR_REGISTRY: harbor.edrisil.net
+      HARBOR_PROJECT: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
+    steps:
+      - name: Checkout hard-boiled-yolks
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          path: ${{ env.SOURCE_PATH }}
+
+      - name: Download SteamCMD melange artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: steamcmd-melange-packages
+          path: ${{ env.SOURCE_PATH }}/steamcmd
+
+      - name: Configure Harbor auth
         shell: bash
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
@@ -70,25 +83,18 @@ jobs:
           set -euo pipefail
           mkdir -p "${HOME}/.docker"
           auth="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
-          cat > "${HOME}/.docker/config.json" <<EOF
-          {
-            "auths": {
-              "${HARBOR_REGISTRY}": {
-                "auth": "${auth}"
-              }
-            }
-          }
-          EOF
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "${HARBOR_REGISTRY}" "${auth}" > "${HOME}/.docker/config.json"
 
       - name: Publish SteamCMD image
         shell: bash
         run: |
           set -euo pipefail
 
-          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_REPOSITORY}:steamcmd"
+          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/steamcmd"
 
-          pushd "${SOURCE_PATH}/steamcmd" >/dev/null
+          pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd" >/dev/null
           apko publish apko.yaml "${image_ref}" \
+            --arch x86_64 \
             --keyring-append melange.rsa.pub \
             --repository-append ./packages
           popd >/dev/null
