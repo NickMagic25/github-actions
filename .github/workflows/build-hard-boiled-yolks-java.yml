@@ -50,39 +50,23 @@ jobs:
       HARBOR_REGISTRY: harbor.edrisil.net
       HARBOR_PROJECT: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
     steps:
+      - name: Checkout actions
+        uses: actions/checkout@v4
+
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Download Java melange artifact
-        uses: actions/download-artifact@v4
+      - name: Publish image
+        uses: ./.github/actions/apko-publish
         with:
-          name: java-melange-packages
-          path: ${{ env.SOURCE_PATH }}/java
-
-      - name: Configure Harbor auth
-        shell: bash
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: |
-          set -euo pipefail
-          mkdir -p "${HOME}/.docker"
-          auth="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
-          printf '{"auths":{"%s":{"auth":"%s"}}}' "${HARBOR_REGISTRY}" "${auth}" > "${HOME}/.docker/config.json"
-
-      - name: Publish Java ${{ matrix.version }} image
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/java_${{ matrix.version }}"
-
-          pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/java" >/dev/null
-          apko publish "${{ matrix.version }}/apko.yaml" "${image_ref}" \
-            --arch x86_64 \
-            --keyring-append melange.rsa.pub \
-            --repository-append ./packages
-          popd >/dev/null
+          component: java
+          image-name: java_${{ matrix.version }}
+          apko-config: ${{ matrix.version }}/apko.yaml
+          source-path: ${{ env.SOURCE_PATH }}
+          harbor-registry: ${{ env.HARBOR_REGISTRY }}
+          harbor-project: ${{ env.HARBOR_PROJECT }}
+          harbor-username: ${{ secrets.HARBOR_USERNAME }}
+          harbor-password: ${{ secrets.HARBOR_PASSWORD }}

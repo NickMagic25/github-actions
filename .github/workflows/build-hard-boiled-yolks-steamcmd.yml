@@ -46,39 +46,23 @@ jobs:
       HARBOR_REGISTRY: harbor.edrisil.net
       HARBOR_PROJECT: ${{ vars.HARBOR_REPOSITORY || 'hard-boiled-yolks' }}
     steps:
+      - name: Checkout actions
+        uses: actions/checkout@v4
+
       - name: Checkout hard-boiled-yolks
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPOSITORY }}
           path: ${{ env.SOURCE_PATH }}
 
-      - name: Download SteamCMD melange artifact
-        uses: actions/download-artifact@v4
+      - name: Publish image
+        uses: ./.github/actions/apko-publish
         with:
-          name: steamcmd-melange-packages
-          path: ${{ env.SOURCE_PATH }}/steamcmd
-
-      - name: Configure Harbor auth
-        shell: bash
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: |
-          set -euo pipefail
-          mkdir -p "${HOME}/.docker"
-          auth="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
-          printf '{"auths":{"%s":{"auth":"%s"}}}' "${HARBOR_REGISTRY}" "${auth}" > "${HOME}/.docker/config.json"
-
-      - name: Publish SteamCMD image
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          image_ref="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/steamcmd"
-
-          pushd "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd" >/dev/null
-          apko publish apko.yaml "${image_ref}" \
-            --arch x86_64 \
-            --keyring-append melange.rsa.pub \
-            --repository-append ./packages
-          popd >/dev/null
+          component: steamcmd
+          image-name: steamcmd
+          apko-config: apko.yaml
+          source-path: ${{ env.SOURCE_PATH }}
+          harbor-registry: ${{ env.HARBOR_REGISTRY }}
+          harbor-project: ${{ env.HARBOR_PROJECT }}
+          harbor-username: ${{ secrets.HARBOR_USERNAME }}
+          harbor-password: ${{ secrets.HARBOR_PASSWORD }}
