@@ -35,12 +35,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          melange build \
-            "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/entrypoint/melange.yaml" \
-            --arch x86_64 \
-            --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/melange.rsa" \
-            --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/packages" \
-            --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd"
+          for config in runtime/melange.yaml entrypoint/melange.yaml; do
+            melange build \
+              "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/${config}" \
+              --arch x86_64 \
+              --signing-key "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/melange.rsa" \
+              --out-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd/packages" \
+              --source-dir "${GITHUB_WORKSPACE}/${SOURCE_PATH}/steamcmd"
+          done
 
       - name: Upload SteamCMD melange artifact
         uses: actions/upload-artifact@v4
