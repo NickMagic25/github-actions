@@ -1,0 +1,103 @@
+name: Melange Build
+description: Generate signing key, build melange packages, and upload artifact
+
+inputs:
+  component:
+    description: Component name (used for paths and artifact name)
+    required: true
+  configs:
+    description: Comma-separated melange config paths relative to the component directory
+    required: true
+  source-path:
+    description: Checkout path of the source repo
+    required: true
+  arch:
+    description: Build architecture
+    required: false
+    default: x86_64
+  runner:
+    description: Melange runner backend (bubblewrap|docker|qemu)
+    required: false
+    default: docker
+
+runs:
+  using: composite
+  steps:
+    - name: Generate melange signing key
+      shell: sh
+      run: |
+        set -eu
+        melange keygen "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/melange.rsa"
+
+    - name: Build melange packages
+      shell: sh
+      run: |
+        set -eu
+
+        # Enable pipefail when available (busybox ash supports it, POSIX sh may not).
+        if (set -o pipefail) 2>/dev/null; then
+          set -o pipefail
+        fi
+
+        # ARC DinD runs dockerd in a sibling container that sees /home/runner/_work.
+        # Force melange temp workspaces onto that shared path so docker bind mounts resolve.
+        if [ "${{ inputs.runner }}" = "docker" ]; then
+          shared_work_root="/home/runner/_work"
+
+          if [ ! -d "${shared_work_root}" ] && [ -d "/__w" ]; then
+            mkdir -p /home/runner
+            if [ ! -e "${shared_work_root}" ]; then
+              ln -s /__w "${shared_work_root}" || true
+            fi
+          fi
+
+          if [ -d "${shared_work_root}" ]; then
+            export TMPDIR="${shared_work_root}/_temp/melange"
+          else
+            export TMPDIR="${GITHUB_WORKSPACE}/.melange-tmp"
+          fi
+
+          mkdir -p "${TMPDIR}"
+          echo "Using melange TMPDIR: ${TMPDIR}"
+        fi
+
+        # qemu runner requires a kernel image; provision one when not explicitly provided.
+        if [ "${{ inputs.runner }}" = "qemu" ] && [ -z "${QEMU_KERNEL_IMAGE:-}" ]; then
+          qemu_kernel_dir="${RUNNER_TEMP:-/tmp}/melange-qemu"
+          qemu_kernel_image="${qemu_kernel_dir}/vmlinuz-virt"
+
+          mkdir -p "${qemu_kernel_dir}"
+
+          if [ ! -s "${qemu_kernel_image}" ]; then
+            curl -fsSL \
+              "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot/vmlinuz-virt" \
+              -o "${qemu_kernel_image}"
+          fi
+
+          export QEMU_KERNEL_IMAGE="${qemu_kernel_image}"
+          echo "Using QEMU kernel image: ${QEMU_KERNEL_IMAGE}"
+        fi
+
+        CONFIGS="${{ inputs.configs }}"
+        OLD_IFS=$IFS
+        IFS=','
+        for config in $CONFIGS; do
+          [ -n "$config" ] || continue
+          melange build \
+            "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/${config}" \
+            --arch ${{ inputs.arch }} \
+            --runner "${{ inputs.runner }}" \
+            --signing-key "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/melange.rsa" \
+            --out-dir "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}/packages" \
+            --source-dir "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}"
+        done
+        IFS=$OLD_IFS
+
+    - name: Upload melange artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.component }}-melange-packages
+        path: |
+          ${{ inputs.source-path }}/${{ inputs.component }}/packages
+          ${{ inputs.source-path }}/${{ inputs.component }}/melange.rsa.pub
+        if-no-files-found: error

@@ -1,0 +1,35 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - busybox
+    - bash
+    - buildkit
+    - ca-certificates-bundle
+    - coreutils
+    - curl
+    - git
+    - libstdc++
+    - flux
+
+accounts:
+  groups:
+    - groupname: runner
+      gid: 1001
+  users:
+    - username: runner
+      uid: 1001
+      gid: 1001
+  run-as: 1001
+
+environment:
+  HOME: /home/runner
+  USER: runner
+
+entrypoint:
+  command: /bin/sh
+
+archs:
+  - x86_64

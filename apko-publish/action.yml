@@ -1,0 +1,115 @@
+name: Apko Publish
+description: Download melange artifact, configure registry auth, and publish image with apko
+
+inputs:
+  component:
+    description: Component name (used for artifact name and paths). Omit for images built purely from public repos (skips melange download).
+    required: false
+  image-name:
+    description: Image name suffix for the registry ref
+    required: true
+  image-tag:
+    description: Image tag to build or publish
+    required: false
+    default: latest
+  apko-config:
+    description: Path to apko.yaml (relative to component directory, or workspace root when component is not set)
+    required: true
+  source-path:
+    description: Checkout path of the source repo. Not required when component is not set.
+    required: false
+  registry:
+    description: Registry hostname
+    required: true
+  registry-project:
+    description: Registry project name
+    required: true
+  registry-username:
+    description: Registry username. Not required for PR builds.
+    required: false
+  registry-password:
+    description: Registry password. Not required for PR builds.
+    required: false
+  arch:
+    description: Build architecture
+    required: false
+    default: x86_64
+
+runs:
+  using: composite
+  steps:
+    - name: Download melange artifact
+      if: inputs.component != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.component }}-melange-packages
+        path: ${{ inputs.source-path }}/${{ inputs.component }}
+
+    - name: Configure registry auth
+      if: github.event_name != 'pull_request'
+      shell: sh
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry-password }}
+      run: |
+        set -eu
+
+        if (set -o pipefail) 2>/dev/null; then
+          set -o pipefail
+        fi
+
+        mkdir -p "${HOME}/.docker"
+        auth="$(printf '%s:%s' "${REGISTRY_USERNAME}" "${REGISTRY_PASSWORD}" | base64 | tr -d '\n')"
+        printf '{"auths":{"%s":{"auth":"%s"}}}' "${REGISTRY}" "${auth}" > "${HOME}/.docker/config.json"
+
+    - name: Build image (PR)
+      if: github.event_name == 'pull_request'
+      shell: sh
+      run: |
+        set -eu
+
+        if (set -o pipefail) 2>/dev/null; then
+          set -o pipefail
+        fi
+
+        if [ -n "${{ inputs.component }}" ]; then
+          cd "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}"
+          apko build "${{ inputs.apko-config }}" \
+            "${{ inputs.image-name }}:${{ inputs.image-tag }}" \
+            "${{ inputs.image-name }}.tar" \
+            --arch ${{ inputs.arch }} \
+            --keyring-append melange.rsa.pub \
+            --repository-append ./packages
+        else
+          apko build "${{ inputs.apko-config }}" \
+            "${{ inputs.image-name }}:${{ inputs.image-tag }}" \
+            "${{ inputs.image-name }}.tar" \
+            --arch ${{ inputs.arch }}
+        fi
+
+    - name: Publish image
+      if: github.event_name != 'pull_request'
+      shell: sh
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_PROJECT: ${{ inputs.registry-project }}
+      run: |
+        set -eu
+
+        if (set -o pipefail) 2>/dev/null; then
+          set -o pipefail
+        fi
+
+        image_ref="${REGISTRY}/${REGISTRY_PROJECT}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+
+        if [ -n "${{ inputs.component }}" ]; then
+          cd "${GITHUB_WORKSPACE}/${{ inputs.source-path }}/${{ inputs.component }}"
+          apko publish "${{ inputs.apko-config }}" "${image_ref}" \
+            --arch ${{ inputs.arch }} \
+            --keyring-append melange.rsa.pub \
+            --repository-append ./packages
+        else
+          apko publish "${{ inputs.apko-config }}" "${image_ref}" \
+            --arch ${{ inputs.arch }}
+        fi

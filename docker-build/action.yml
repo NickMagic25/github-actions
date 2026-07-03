@@ -1,0 +1,59 @@
+name: Docker Build
+description: Login to a registry and build (or build and push) a Docker image with buildx
+
+inputs:
+  dockerfile:
+    description: Path to the Dockerfile
+    required: true
+  context:
+    description: Build context path
+    required: true
+  image-name:
+    description: Full image name including tag (e.g. registry/project/name:tag)
+    required: true
+  platform:
+    description: Target platform
+    required: false
+    default: linux/amd64
+  registry:
+    description: Registry hostname. Not required for PR builds.
+    required: false
+  registry-username:
+    description: Registry username. Not required for PR builds.
+    required: false
+  registry-password:
+    description: Registry password. Not required for PR builds.
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Login to registry
+      if: github.event_name != 'pull_request'
+      shell: sh
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry-password }}
+      run: |
+        echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY}" -u "${REGISTRY_USERNAME}" --password-stdin
+
+    - name: Build image (PR)
+      if: github.event_name == 'pull_request'
+      shell: sh
+      run: |
+        docker buildx build \
+          --platform ${{ inputs.platform }} \
+          --file "${{ inputs.dockerfile }}" \
+          "${{ inputs.context }}"
+
+    - name: Build and push image
+      if: github.event_name != 'pull_request'
+      shell: sh
+      run: |
+        docker buildx build \
+          --platform ${{ inputs.platform }} \
+          --push \
+          --tag "${{ inputs.image-name }}" \
+          --file "${{ inputs.dockerfile }}" \
+          "${{ inputs.context }}"
