@@ -1,0 +1,178 @@
+name: Helm OCI Publish
+description: Validate, package, and publish a Helm chart to an OCI registry
+
+inputs:
+  chart-path:
+    description: Path to the Helm chart directory
+    required: true
+  registry:
+    description: Registry hostname. Required for non-PR publishing.
+    required: false
+  registry-project:
+    description: Registry namespace or project path. Optional for registries that publish at the root.
+    required: false
+  registry-username:
+    description: Registry username. Required for non-PR publishing.
+    required: false
+  registry-password:
+    description: Registry password or token. Required for non-PR publishing.
+    required: false
+  package-destination:
+    description: Directory where the packaged chart archive is written
+    required: false
+    default: .helm-packages
+  chart-version:
+    description: Override the chart version during packaging
+    required: false
+  app-version:
+    description: Override the app version during packaging
+    required: false
+  dependency-build:
+    description: Run helm dependency build before validation
+    required: false
+    default: "true"
+  lint-strict:
+    description: Run helm lint with --strict
+    required: false
+    default: "false"
+
+outputs:
+  package-path:
+    description: Path to the packaged chart archive
+    value: ${{ steps.package.outputs.package_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate chart
+      shell: sh
+      env:
+        CHART_PATH: ${{ inputs.chart-path }}
+        DEPENDENCY_BUILD: ${{ inputs.dependency-build }}
+        LINT_STRICT: ${{ inputs.lint-strict }}
+      run: |
+        set -eu
+
+        if (set -o pipefail) 2>/dev/null; then
+          set -o pipefail
+        fi
+
+        resolve_path() {
+          case "$1" in
+            /*) printf '%s\n' "$1" ;;
+            *) printf '%s/%s\n' "${GITHUB_WORKSPACE}" "$1" ;;
+          esac
+        }
+
+        chart_path="$(resolve_path "${CHART_PATH}")"
+
+        if [ ! -f "${chart_path}/Chart.yaml" ]; then
+          echo "::error::Helm chart not found at ${chart_path}; expected Chart.yaml"
+          exit 1
+        fi
+
+        if [ "${DEPENDENCY_BUILD}" = "true" ]; then
+          helm dependency build "${chart_path}"
+        fi
+
+        set -- "${chart_path}"
+        if [ "${LINT_STRICT}" = "true" ]; then
+          set -- "$@" --strict
+        fi
+
+        helm lint "$@"
+        helm template "${chart_path}" >/dev/null
+
+    - name: Package chart
+      id: package
+      shell: sh
+      env:
+        CHART_PATH: ${{ inputs.chart-path }}
+        PACKAGE_DESTINATION: ${{ inputs.package-destination }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        APP_VERSION: ${{ inputs.app-version }}
+      run: |
+        set -eu
+
+        if (set -o pipefail) 2>/dev/null; then
+          set -o pipefail
+        fi
+
+        resolve_path() {
+          case "$1" in
+            /*) printf '%s\n' "$1" ;;
+            *) printf '%s/%s\n' "${GITHUB_WORKSPACE}" "$1" ;;
+          esac
+        }
+
+        chart_path="$(resolve_path "${CHART_PATH}")"
+        package_destination="$(resolve_path "${PACKAGE_DESTINATION}")"
+
+        mkdir -p "${package_destination}"
+
+        set -- "${chart_path}" --destination "${package_destination}"
+        if [ -n "${CHART_VERSION}" ]; then
+          set -- "$@" --version "${CHART_VERSION}"
+        fi
+        if [ -n "${APP_VERSION}" ]; then
+          set -- "$@" --app-version "${APP_VERSION}"
+        fi
+
+        package_output="$(helm package "$@")"
+        printf '%s\n' "${package_output}"
+
+        package_path="$(printf '%s\n' "${package_output}" | sed -n 's/^Successfully packaged chart and saved it to: //p' | tail -n 1)"
+        if [ -z "${package_path}" ] || [ ! -f "${package_path}" ]; then
+          echo "::error::Unable to determine packaged chart path from helm package output"
+          exit 1
+        fi
+
+        printf 'package_path=%s\n' "${package_path}" >> "${GITHUB_OUTPUT}"
+
+    - name: Login to registry
+      if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+      shell: sh
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry-password }}
+      run: |
+        set -eu
+
+        missing=0
+        if [ -z "${REGISTRY}" ]; then
+          echo "::error::registry is required for non-PR publishing"
+          missing=1
+        fi
+        if [ -z "${REGISTRY_USERNAME}" ]; then
+          echo "::error::registry-username is required for non-PR publishing"
+          missing=1
+        fi
+        if [ -z "${REGISTRY_PASSWORD}" ]; then
+          echo "::error::registry-password is required for non-PR publishing"
+          missing=1
+        fi
+        if [ "${missing}" -ne 0 ]; then
+          exit 1
+        fi
+
+        echo "${REGISTRY_PASSWORD}" | helm registry login "${REGISTRY}" \
+          --username "${REGISTRY_USERNAME}" \
+          --password-stdin
+
+    - name: Push chart
+      if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+      shell: sh
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_PROJECT: ${{ inputs.registry-project }}
+        PACKAGE_PATH: ${{ steps.package.outputs.package_path }}
+      run: |
+        set -eu
+
+        registry_path="${REGISTRY}"
+        if [ -n "${REGISTRY_PROJECT}" ]; then
+          registry_path="${registry_path}/${REGISTRY_PROJECT}"
+        fi
+
+        helm push "${PACKAGE_PATH}" "oci://${registry_path}"

@@ -5,6 +5,7 @@ This repository contains reusable composite GitHub Actions and APKO image defini
 The current focus is on:
 
 - Building and publishing Docker images.
+- Validating and publishing Helm charts as OCI artifacts.
 - Building Wolfi packages with Melange.
 - Building or publishing APKO images, optionally including locally built Melange packages.
 - Keeping common CI runner images in one place.
@@ -15,6 +16,7 @@ The current focus is on:
 .
 ├── apko-publish/       # Composite action for APKO image builds/publishes
 ├── docker-build/       # Composite action for Docker buildx builds/publishes
+├── helm-oci-publish/   # Composite action for Helm chart OCI publishes
 ├── images/             # APKO image definitions
 └── melange-build/      # Composite action for Melange package builds
 ```
@@ -66,6 +68,55 @@ Inputs:
 | `registry` | No |  | Registry hostname. Required for push events. |
 | `registry-username` | No |  | Registry username. Required for push events. |
 | `registry-password` | No |  | Registry password or token. Required for push events. |
+
+### `helm-oci-publish`
+
+Validates a Helm chart, packages it, and publishes it to an OCI registry.
+
+- Pull requests: runs dependency build, lint, render validation, and local packaging without publishing.
+- Non-PR events: runs the same validation and packaging, logs in to the registry, and pushes the packaged chart with `helm push`.
+
+Example:
+
+```yaml
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: NickMagic25/github-actions/helm-oci-publish@main
+        with:
+          chart-path: charts/my-app
+          registry: ghcr.io
+          registry-project: my-org/charts
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Inputs:
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `chart-path` | Yes |  | Path to the Helm chart directory. |
+| `registry` | No |  | Registry hostname. Required for non-PR publishing. |
+| `registry-project` | No |  | Registry namespace or project path. Optional for registries that publish at the root. |
+| `registry-username` | No |  | Registry username. Required for non-PR publishing. |
+| `registry-password` | No |  | Registry password or token. Required for non-PR publishing. |
+| `package-destination` | No | `.helm-packages` | Directory where the packaged chart archive is written. |
+| `chart-version` | No |  | Override the chart version during packaging. |
+| `app-version` | No |  | Override the app version during packaging. |
+| `dependency-build` | No | `true` | Run `helm dependency build` before validation. |
+| `lint-strict` | No | `false` | Run `helm lint` with `--strict`. |
+
+Output:
+
+| Output | Description |
+| --- | --- |
+| `package-path` | Path to the packaged chart archive. |
 
 ### `melange-build`
 
@@ -229,6 +280,7 @@ jobs:
 These composite actions expect the runner environment to provide the tools they call:
 
 - `docker` and `docker buildx` for `docker-build`.
+- `helm` 3.8 or newer for `helm-oci-publish`.
 - `melange` for `melange-build`.
 - `apko` for `apko-publish`.
 - `curl` when using `melange-build` with `runner: qemu`.
