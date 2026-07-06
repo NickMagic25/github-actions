@@ -17,6 +17,7 @@ contents:
     - bubblewrap
     - docker-cli
     - docker-cli-buildx
+    - helm
 
 accounts:
   groups:
